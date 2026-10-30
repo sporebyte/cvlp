@@ -6,6 +6,20 @@ an EMDB id and get one template per capsomer class, an edge decoy, the shared
 mask and the RELION `--ref` star files, at your subtomogram pixel size. It only
 makes templates: no seeding, and no tomogram needed.
 
+**When to use it.** Capsomer oversampling needs capsomer references. Normally
+you would cut them from your own whole-VLP average, as for copia. When your
+data has too few whole VLPs to average first, but you know the species, cvlp
+cuts the references from that species' published EMDB map instead.
+
+**Best on larger VLPs (T >= 7).** A useful template holds a capsomer and its
+first neighbour ring, because the classes often differ only in their
+neighbours. Capsomers sit 80-100 A apart in most capsids, so on a small capsid
+that ring reaches far round the particle: +-38 deg at copia's T=9 and +-45 deg
+at T=7, but +-60-78 deg at T=3-4, where every template is a quarter of the
+particle. cvlp caps the mask at +-50 deg there and prints a note. For small
+rigid capsids, averaging whole particles and expanding the symmetry is usually
+the more reliable route.
+
 Standalone: needs only numpy, scipy, mrcfile and matplotlib, which pip
 installs with it. It does not import teact.
 
@@ -101,7 +115,7 @@ template grid cannot alias. Values finer than Nyquist are refused.
 ```
 EMD-19708/
   references/ref_C1_32px_11.8A.mrc  ref_C3_...  ref_C5_...  ref_decoy_32px_11.8A.mrc
-  references/display/*_unfiltered.mrc     fine-grid cuts, no low-pass (for ChimeraX)
+  references/unfiltered/ref_C1_128px_2.95A.mrc ...   the same cuts unfiltered, for looking at (below)
   mask_capsomer_32px.mrc
   refs_C1_C3_C5.star                      --ref list, capsomers only
   refs_C1_C3_C5_decoy.star                --ref list, capsomers + decoy
@@ -111,6 +125,15 @@ EMD-19708/
   figures/A_map_profiles.png  B_lattice_test.png  C_templates.png
   emdb/                                   metadata + downloaded map
 ```
+
+The unfiltered references are plain cutouts for visualisation, not for
+RELION. They have the same centre, orientation and box (in A) as each
+template, on the fine grid (`--apix`/4, 2.95 A for 11.8), with no low-pass,
+mask or normalisation. So they keep the map's own density scale, and the EMDB
+entry's contour level works on them. They are cut from `outer_shell_only.mrc`,
+so the inner layer is removed as in the templates. They are not offered at the
+template pixel size: an unfiltered cut onto an 11.8 A grid would alias.
+`figures/C_templates.png` shows them under the templates.
 
 ## Checked on
 

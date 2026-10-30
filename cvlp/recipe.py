@@ -80,7 +80,7 @@ def _lowpass(lowpass, apix, shell_path, out, log):
 
 
 def build(map_I1, out, model, apix, box=None, mask_diameter=None, relion_prefix=None,
-          gap_radius=None, lowpass="copia", max_arc=MAX_ARC_DEG, display=True, log=print):
+          gap_radius=None, lowpass="copia", max_arc=MAX_ARC_DEG, unfiltered=True, log=print):
     """Write every template file into `out` -> params dict (also params.json).
 
     lowpass: "copia" (default, reproduces copia), "nyquist" (2 x apix), or a
@@ -88,8 +88,12 @@ def build(map_I1, out, model, apix, box=None, mask_diameter=None, relion_prefix=
     (deg) the default mask may span round the capsid."""
     out = Path(out)
     refdir = out / "references"
-    dispdir = refdir / "display"                           # unfiltered fine-grid cuts, for ChimeraX
-    (dispdir if display else refdir).mkdir(parents=True, exist_ok=True)
+    # Unfiltered cuts, for looking at: same centre, orientation and box (in A) as
+    # each template, on the fine grid, no low-pass, no mask, no normalisation, so
+    # the map's own density scale (and the EMDB contour level) still applies.
+    unf_dir = refdir / "unfiltered"
+    (unf_dir if unfiltered else refdir).mkdir(parents=True, exist_ok=True)
+    unf_file = {}
     relion_prefix = str(out) if relion_prefix is None else relion_prefix.rstrip("/")
     fine_apix = apix / 4                                   # copia: 2.95 A for 11.8 A
     shell_path = out / "outer_shell_only.mrc"
@@ -117,15 +121,22 @@ def build(map_I1, out, model, apix, box=None, mask_diameter=None, relion_prefix=
             f"neighbours at {np.round(nbd[n], 1).tolist()} A  {model['rules'][n]}")
     log(f"  reference radius {R_REF:.1f} A, shortest capsomer spacing {SPACING:.1f} A")
 
+    # On a small capsid the neighbour ring sits far round the particle, and the
+    # copia-sized mask becomes a quarter of the capsid. Keep it within +-max_arc
+    # of arc around the capsomer (copia's own spans +-38 deg at T=9).
+    ring_mask = float(np.round(COPIA_MASK_PER_SPACING * SPACING, 1))
+    cap = float(np.round(4 * R_REF * np.sin(np.radians(max_arc) / 2), 1))
+    small = ring_mask > cap
+    if small:
+        log(f"  note: small capsid. A capsomer and its neighbour ring ({ring_mask:.0f} A) span "
+            f"+-{_arc(ring_mask, R_REF):.0f} deg of it, so any\n"
+            f"        template is a large part of the particle. Oversampling works best on larger VLPs\n"
+            f"        (T>=7, copia T=9: +-38 deg); for small rigid capsids, averaging whole particles and\n"
+            f"        expanding the symmetry is usually more reliable.")
     if mask_diameter is None:
-        mask_diameter = float(np.round(COPIA_MASK_PER_SPACING * SPACING, 1))
-        # On a small capsid the neighbour ring sits far round the particle, and the
-        # copia-sized mask becomes a quarter of the capsid. Keep it within +-max_arc
-        # of arc around the capsomer (copia's own spans +-38 deg at T=9).
-        cap = float(np.round(4 * R_REF * np.sin(np.radians(max_arc) / 2), 1))
-        if mask_diameter > cap:
-            log(f"  mask {mask_diameter:.0f} A would span +-{_arc(mask_diameter, R_REF):.0f} deg of the capsid; "
-                f"capped at {cap:.0f} A (+-{max_arc:g} deg)")
+        mask_diameter = ring_mask
+        if small:
+            log(f"  mask capped at {cap:.0f} A (+-{max_arc:g} deg)")
             mask_diameter = cap
     arc = _arc(mask_diameter, R_REF)
     box = _even(COPIA_BOX_PER_MASK * mask_diameter / apix) if box is None else int(box)
@@ -147,8 +158,9 @@ def build(map_I1, out, model, apix, box=None, mask_diameter=None, relion_prefix=
         checks[n] = dict(site=i, radius=float(r), off_fine_px=np.round(off_fine, 2).tolist(),
                          off_final_px=np.round(cut.bud_offset(arr, apix, r_local), 2).tolist(),
                          neighbour_contrast=round(nc, 2), ring_peaks=npk, expected=nn)
-        if display:
-            mapio.write_mrc(dispdir / f"{n}_{fine_box}px_{fine_apix:.3g}A_unfiltered.mrc", fine, fine_apix)
+        if unfiltered:
+            unf_file[n] = f"ref_{n}_{fine_box}px_{fine_apix:.2f}A.mrc"
+            mapio.write_mrc(unf_dir / unf_file[n], fine, fine_apix)
         log(f"  {n:4s} cut at r={r:.1f} A | centring offset fine {checks[n]['off_fine_px']} px, "
             f"final {checks[n]['off_final_px']} px | neighbour contrast {nc:+.2f} (want >0) | "
             f"ring peaks {npk} (expect {nn})")
@@ -183,9 +195,10 @@ def build(map_I1, out, model, apix, box=None, mask_diameter=None, relion_prefix=
     dec = cut.normalise_in_mask(cut.cut_reference(lp_src, mid, r_dec, box, apix, **lp_kw), mask)
     ref_file["decoy"] = f"ref_decoy_{box}px_{apix:.1f}A.mrc"
     mapio.write_mrc(refdir / ref_file["decoy"], dec, apix)
-    if display:
-        mapio.write_mrc(dispdir / f"decoy_{fine_box}px_{fine_apix:.3g}A_unfiltered.mrc",
-                           cut.cut_reference(shell_path, mid, r_dec, fine_box, fine_apix), fine_apix)
+    if unfiltered:
+        unf_file["decoy"] = f"ref_decoy_{fine_box}px_{fine_apix:.2f}A.mrc"
+        mapio.write_mrc(unf_dir / unf_file["decoy"],
+                        cut.cut_reference(shell_path, mid, r_dec, fine_box, fine_apix), fine_apix)
     log(f"  decoy: saddle between sites {i} and {j} ({pair}, {sep:.1f} deg apart), cut at r = {r_dec:.1f} A")
 
     # ---- references must be distinct, the decoy most of all ----------------
@@ -203,7 +216,7 @@ def build(map_I1, out, model, apix, box=None, mask_diameter=None, relion_prefix=
                                 [f"{relion_prefix}/references/{ref_file[n]}" for n in names + ["decoy"]])
 
     params = dict(T=model["T"], h=model["h"], k=model["k"], bin_apix=apix, box=box,
-                  mask_diameter=mask_diameter, mask_arc_deg=round(arc, 1),
+                  mask_diameter=mask_diameter, mask_arc_deg=round(arc, 1), small_capsid=bool(small),
                   gap_radius=gap["gap"], mask_r_outer=R_OUTER,
                   inner_layer=gap["inner"], outer_layer=gap["outer"], capsomer_radius=R_CAPS,
                   reference_radius=R_REF, ref_radii=radii_ref, spacing=SPACING,
@@ -216,6 +229,7 @@ def build(map_I1, out, model, apix, box=None, mask_diameter=None, relion_prefix=
                   files=dict(outer_shell=shell_path.name, mask=mask_path.name,
                              lowpassed_shell=None if lp_src == shell_path else lp_src.name,
                              references={n: f"references/{f}" for n, f in ref_file.items()},
+                             references_unfiltered={n: f"references/unfiltered/{f}" for n, f in unf_file.items()},
                              refs_star=stars["refs"].name, refs_decoy_star=stars["refs_decoy"].name),
                   relion_prefix=relion_prefix)
     params["_profiles"] = dict(radii=gap["radii"], profile=gap["profile"], site_r=site_r, site_prof=site_prof)

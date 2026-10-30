@@ -50,18 +50,29 @@ def write_all(params, scores, out):
         ax.legend(fontsize=8, loc="upper right")
         plt.tight_layout(); plt.savefig(fig_dir / "B_lattice_test.png", dpi=130); plt.close(fig)
 
-    # the templates: top view (z = 0 slice) and side view (xz), mask outline
+    # the templates: top view (z = 0 slice) and side view (xz), mask outline;
+    # below them the unfiltered cuts (5-slice slabs, the fine grid is thin)
     files = params["files"]["references"]
+    unf = params["files"].get("references_unfiltered", {})
     mask = mrcfile.read(Path(out) / params["files"]["mask"])
     b = mask.shape[0] // 2
-    fig, ax = plt.subplots(2, len(files), figsize=(2.6 * len(files), 5.4), squeeze=False)
+    rows = 4 if unf else 2
+    fig, ax = plt.subplots(rows, len(files), figsize=(2.6 * len(files), 2.7 * rows), squeeze=False)
     for col, (n, f) in enumerate(files.items()):
         v = mrcfile.read(Path(out) / f)
-        for row, (img, m, t) in enumerate(((v[b], mask[b], "top (z=0)"), (v[:, b, :], mask[:, b, :], "side (xz), out = up"))):
+        panels = [(v[b], mask[b], f"{n} template, top (z=0)"), (v[:, b, :], mask[:, b, :], "template, side (xz), out = up")]
+        if n in unf:
+            u = mrcfile.read(Path(out) / unf[n])
+            c = u.shape[0] // 2
+            panels += [(u[c - 2:c + 3].mean(0), None, f"{n} unfiltered, top"),
+                       (u[:, c - 2:c + 3, :].mean(1), None, "unfiltered, side")]
+        for row, (img, m, t) in enumerate(panels):
             a = ax[row, col]
             a.imshow(img, origin="lower", cmap="gray")
-            a.contour(m, levels=[0.5], colors="#ff7f0e", linewidths=0.8)
-            a.set_xticks([]); a.set_yticks([])
-            a.set_title(f"{n} {t}" if row == 0 else t, fontsize=8)
+            if m is not None:
+                a.contour(m, levels=[0.5], colors="#ff7f0e", linewidths=0.8)
+            a.set_title(t, fontsize=8)
+    for a in ax.ravel():
+        a.set_xticks([]); a.set_yticks([])
     plt.tight_layout(); plt.savefig(fig_dir / "C_templates.png", dpi=130); plt.close(fig)
     return fig_dir
