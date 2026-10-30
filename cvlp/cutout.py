@@ -56,6 +56,28 @@ def icosahedral_selfcheck(path, r_lo, r_hi):
     return out
 
 
+FOURIER_EDGE = 0.15
+
+
+def fourier_lowpass(vol, apix, res, edge=FOURIER_EDGE):
+    """Low-pass to `res` A: nothing finer than res passes, with a raised-cosine
+    roll-off over the last `edge` fraction of the frequency range (amplitude 1
+    up to (1 - edge) / res, 0 from 1 / res). Unlike a real-space Gaussian, this
+    keeps what is coarser than res at full strength."""
+    k = np.sqrt(sum(f ** 2 for f in np.meshgrid(np.fft.fftfreq(vol.shape[0], apix),
+                                                np.fft.fftfreq(vol.shape[1], apix),
+                                                np.fft.rfftfreq(vol.shape[2], apix),
+                                                indexing="ij", sparse=True)))
+    k0 = 1.0 / res
+    w = 0.5 + 0.5 * np.cos(np.pi * np.clip((k - (1 - edge) * k0) / (edge * k0), 0, 1))
+    return np.fft.irfftn(np.fft.rfftn(vol) * w, s=vol.shape, axes=(0, 1, 2)).astype(np.float32)
+
+
+def gaussian_half_amplitude(fwhm):
+    """Resolution (A) at which a real-space Gaussian of this FWHM passes 50%."""
+    return float(fwhm / 2.355 / np.sqrt(np.log(2) / (2 * np.pi ** 2)))
+
+
 def cut_outer_shell(path, gap_radius, out_path, soft=3):
     """Map with everything inside gap_radius removed (raised-cosine edge)."""
     vol, apix, c = load_map(path)

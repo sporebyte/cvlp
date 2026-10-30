@@ -6,9 +6,15 @@ A-C and make_decoy_reference.py, run on an I1 map:
   A  layers -> outer shell only (inner layer removed at the gap)
   B  site profiles -> reference radius, neighbour distances, capsomer spacing
   C  one reference per capsomer orbit: radius centred on the fine grid, cut at
-     the subtomogram pixel size, low-pass 2 x pixel, normalised in one shared
+     the subtomogram pixel size, low-passed, normalised in one shared
      shell-section mask
   D  the decoy: the same cut on the saddle between two neighbouring capsomers
+
+Low-pass: copia's is a real-space Gaussian of FWHM 2 x pixel, applied while
+cutting. It passes 50% only at ~2.3 x its FWHM (53 A for 11.8 A/px), so the
+templates are far blurrier than the pixel allows. lowpass="nyquist" or a
+resolution in A uses a Fourier low-pass on the shell map instead (see
+cutout.fourier_lowpass), which keeps everything coarser than the cutoff.
 
 Box and mask scale with the capsomer spacing the way copia's were set
 (300 A mask at an 82 A spacing; 32 px x 11.8 A box per 300 A mask), so copia's
@@ -45,9 +51,30 @@ def _orbit_order(names):
     return sorted(names, key=lambda n: (int(n[1]), n))
 
 
+def _lowpass(lowpass, apix, shell_path, out, log):
+    """-> (map to cut the templates from, cut_reference kwargs, params record)."""
+    if lowpass == "copia":
+        fwhm = 2 * apix
+        info = dict(mode="copia", gaussian_fwhm_A=fwhm, half_amplitude_A=round(cut.gaussian_half_amplitude(fwhm), 1))
+        log(f"  low-pass: copia's Gaussian, FWHM {fwhm:.1f} A (50% at {info['half_amplitude_A']} A)")
+        return shell_path, dict(lowpass=fwhm), info
+    res = 2 * apix if lowpass == "nyquist" else float(lowpass)
+    if res < 2 * apix - 1e-6:
+        raise ValueError(f"--lowpass {res:g} A is finer than Nyquist at {apix} A/px ({2 * apix:g} A)")
+    vol, vapix, _ = mapio.load_map(shell_path)
+    src = out / f"outer_shell_lowpass_{res:.1f}A.mrc"
+    mapio.write_mrc(src, cut.fourier_lowpass(vol, vapix, res), vapix)
+    info = dict(mode="fourier", cutoff_A=res, half_amplitude_A=round(res / (1 - cut.FOURIER_EDGE / 2), 1))
+    log(f"  low-pass: Fourier, nothing finer than {res:.1f} A (50% at {info['half_amplitude_A']} A)")
+    return src, {}, info
+
+
 def build(map_I1, out, model, apix, box=None, mask_diameter=None, relion_prefix=None,
-          gap_radius=None, display=True, log=print):
-    """Write every template file into `out` -> params dict (also params.json)."""
+          gap_radius=None, lowpass="copia", display=True, log=print):
+    """Write every template file into `out` -> params dict (also params.json).
+
+    lowpass: "copia" (default, reproduces copia), "nyquist" (2 x apix), or a
+    resolution in A for a Fourier low-pass."""
     out = Path(out)
     refdir = out / "references"
     dispdir = refdir / "display"                           # unfiltered fine-grid cuts, for ChimeraX
@@ -66,6 +93,7 @@ def build(map_I1, out, model, apix, box=None, mask_diameter=None, relion_prefix=
             "  (no inner layer: cut 10 A inside the capsid's inner edge)")
     log(f"  inner layer {inner} | gap {gap['gap']:.1f} A | outer layer {gap['outer']:.1f} A" + note)
     cut.cut_outer_shell(map_I1, gap["gap"], shell_path)
+    lp_src, lp_kw, lp_info = _lowpass(lowpass, apix, shell_path, out, log)
 
     # ---- B. lattice geometry ----------------------------------------------
     site_r, site_prof = S.site_profiles(shell_path, model, r_lo=gap["gap"] - 20)
@@ -93,7 +121,7 @@ def build(map_I1, out, model, apix, box=None, mask_diameter=None, relion_prefix=
     for n in names:
         i = model["representative"][n]
         r, off_fine = cut.centre_site_radius(shell_path, d[i], R_REF, fine_apix, fine_box, r_local=r_local)
-        arr = cut.cut_reference(shell_path, d[i], r, box, apix, lowpass=2 * apix)
+        arr = cut.cut_reference(lp_src, d[i], r, box, apix, **lp_kw)
         refs[n], radii_ref[n] = arr, float(r)
         fine = cut.cut_reference(shell_path, d[i], r, fine_box, fine_apix)
         nc, nn = cut.neighbour_contrast(fine, fine_apix, model, i, r)
@@ -134,7 +162,7 @@ def build(map_I1, out, model, apix, box=None, mask_diameter=None, relion_prefix=
     sep = float(np.degrees(np.arccos(np.clip(d[i] @ d[j], -1, 1))))
     pair = f"{model['orbit_names'][model['orbits'][i]]}-{model['orbit_names'][model['orbits'][j]]}"
     r_dec, off_dec = cut.centre_site_radius(shell_path, mid, R_CAPS, fine_apix, fine_box, r_local=r_local)
-    dec = cut.normalise_in_mask(cut.cut_reference(shell_path, mid, r_dec, box, apix, lowpass=2 * apix), mask)
+    dec = cut.normalise_in_mask(cut.cut_reference(lp_src, mid, r_dec, box, apix, **lp_kw), mask)
     ref_file["decoy"] = f"ref_decoy_{box}px_{apix:.1f}A.mrc"
     mapio.write_mrc(refdir / ref_file["decoy"], dec, apix)
     if display:
@@ -160,13 +188,14 @@ def build(map_I1, out, model, apix, box=None, mask_diameter=None, relion_prefix=
                   mask_diameter=mask_diameter, gap_radius=gap["gap"], mask_r_outer=R_OUTER,
                   inner_layer=gap["inner"], outer_layer=gap["outer"], capsomer_radius=R_CAPS,
                   reference_radius=R_REF, ref_radii=radii_ref, spacing=SPACING,
-                  fine_apix=fine_apix, fine_box=fine_box, lowpass=2 * apix,
+                  fine_apix=fine_apix, fine_box=fine_box, lowpass=lp_info,
                   orbits={n: dict(count=model["counts"][n], neighbours=model["rules"][n]) for n in names},
                   reference_checks=checks,
                   decoy=dict(sites=[i, j], pair=pair, separation_deg=round(sep, 2), cut_radius=round(float(r_dec), 2),
                              centring_offset_fine_px=np.round(off_dec, 2).tolist()),
                   correlation_in_mask=corr,
                   files=dict(outer_shell=shell_path.name, mask=mask_path.name,
+                             lowpassed_shell=None if lp_src == shell_path else lp_src.name,
                              references={n: f"references/{f}" for n, f in ref_file.items()},
                              refs_star=stars["refs"].name, refs_decoy_star=stars["refs_decoy"].name),
                   relion_prefix=relion_prefix)

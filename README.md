@@ -30,6 +30,7 @@ cvlp EMD-10800 --apix 11.8 --box 32            # any other capsid / sampling
 | `--mask-diameter` | scaled | A; copia's 300 A at an 82 A capsomer spacing, scaled with the spacing (capped at the capsid diameter) |
 | `--T` | detected | the triangulation number; the hand of a skewed lattice is still read from the map |
 | `--hk 2,1` | | force one lattice |
+| `--lowpass` | `copia` | template low-pass: `copia`, `nyquist`, or a resolution in A (see below) |
 | `--gap-radius` | measured | remove everything inside this radius (inner layer / RNP) |
 | `--relion-prefix` | the output folder | how RELION sees the output folder, used in the star files |
 | `--map file.mrc` | | use a local map instead of downloading |
@@ -70,13 +71,29 @@ If teact's versions change, cvlp keeps the copies it has.
    `figures/B_lattice_test.png`.
 4. **Templates.** This is copia's recipe, using the borrowed functions above: shell
    gap -> `outer_shell_only.mrc` -> site profiles -> one reference per capsomer
-   orbit (radius centred on the fine grid, cut at `--apix`, low-pass 2x pixel,
+   orbit (radius centred on the fine grid, cut at `--apix`, low-passed,
    normalised in one shell-section mask) -> decoy on the saddle between two
    neighbouring capsomers of the most numerous class.
 
 Capsomer classes are icosahedral orbits named by local symmetry: C5 (12
 pentamers), C3 (20, on 3-folds), C2 (30, on 2-folds), C1 (60, general
 position; C1a, C1b, ... when a lattice has several, e.g. T=13, 16, 19).
+
+### Low-pass
+
+| `--lowpass` | filter | at 11.8 A/px: 50% at | nothing finer than |
+|---|---|---|---|
+| `copia` (default) | real-space Gaussian, FWHM 2 x pixel, as in the copia run | 53.5 A | (Gaussian tail; 3% left at 23.6 A) |
+| `nyquist` | Fourier, raised-cosine edge over the last 15% | 25.5 A | 23.6 A |
+| e.g. `30` | Fourier, as above | 32.4 A | 30 A |
+
+The default reproduces copia's templates exactly. That filter is much stronger
+than its "2 x pixel" suggests, and the templates come out similar to each
+other: on hepatitis A (EMD-55772), C3, C5 and the decoy correlate 0.91-0.93
+with `copia` and 0.82-0.86 with `nyquist`. Use `nyquist` for templates as
+sharp as the pixel allows. A Fourier low-pass is applied to the shell map once
+(`outer_shell_lowpass_<res>A.mrc`) before cutting, so resampling onto the
+template grid cannot alias. Values finer than Nyquist are refused.
 
 ## Output
 
@@ -89,6 +106,7 @@ EMD-19708/
   refs_C1_C3_C5_decoy.star                --ref list, capsomers + decoy
   params.json                             every number (copia's params.json keys + frame, lattice test, decoy)
   map_I1.mrc  outer_shell_only.mrc
+  outer_shell_lowpass_23.6A.mrc           only with a Fourier --lowpass
   figures/A_map_profiles.png  B_lattice_test.png  C_templates.png
   emdb/                                   metadata + downloaded map
 ```

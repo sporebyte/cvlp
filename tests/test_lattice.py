@@ -59,5 +59,20 @@ def test_reference_star_is_relion_readable(tmp_path):
                                               "_rlnReferenceImage #1", "a/ref_C1.mrc", "a/ref_C3.mrc"]
 
 
+def test_fourier_lowpass_passes_coarse_and_stops_fine():
+    from cvlp import cutout as cut
+    n, apix = 64, 4.0
+    x = np.arange(n) * apix
+    wave = lambda period: np.broadcast_to(np.cos(2 * np.pi * x / period), (n, n, n)).copy()
+    for period, kept in ((64.0, 1.0), (32.0, 1.0), (25.6, 0.0)):    # cutoff 26 A, roll-off from 30.6 A
+        out = cut.fourier_lowpass(wave(period), apix, 26.0)
+        assert np.isclose(np.abs(out).max(), kept, atol=1e-3), period
+
+
+def test_gaussian_half_amplitude_is_53A_for_copia():
+    from cvlp import cutout as cut
+    assert abs(cut.gaussian_half_amplitude(23.6) - 53.5) < 0.1
+
+
 def test_ids():
     assert emdb.normalise_id("emd_19708") == emdb.normalise_id("19708") == "EMD-19708"

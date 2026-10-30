@@ -5,6 +5,7 @@
     python -m cvlp EMD-1234 --T 7               # T given; the hand is still read from the map
     python -m cvlp EMD-1234 --hk 1,2            # force one lattice
     python -m cvlp EMD-1234 --map local.mrc     # use a local copy of the map
+    python -m cvlp EMD-1234 --lowpass nyquist   # sharper templates than copia's Gaussian
 
 Steps: download the map -> find its icosahedral frame and centre -> resample
 into RELION I1 -> pick the lattice (T, and the hand if it is skewed) ->
@@ -20,6 +21,15 @@ from pathlib import Path
 
 from . import emdb, figures, lattice as L, recipe, shell as S, symmetry
 from . import cutout as cut, mapio
+
+
+def _lowpass_arg(s):
+    if s.lower() in ("copia", "nyquist"):
+        return s.lower()
+    try:
+        return float(s)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected copia, nyquist or a resolution in A, got {s!r}")
 
 
 def pick_lattice(args, entry, shell_path, r_outer, log):
@@ -66,6 +76,9 @@ def main(argv=None):
     ap.add_argument("--T", type=int, help="triangulation number, if known (hand still read from the map)")
     ap.add_argument("--hk", help="force the lattice, e.g. 2,1")
     ap.add_argument("--t-max", type=int, default=31, help="largest T tried when T is not given (31)")
+    ap.add_argument("--lowpass", type=_lowpass_arg, default="copia",
+                    help="template low-pass: 'copia' (default; Gaussian FWHM 2 x pixel, 50%% at ~4.5 x pixel), "
+                         "'nyquist' (Fourier, to 2 x pixel), or a resolution in A (Fourier)")
     ap.add_argument("--gap-radius", type=float, help="A; remove everything inside this radius (default: measured)")
     ap.add_argument("--relion-prefix", help="how RELION sees the output folder (default: the folder as given)")
     ap.add_argument("--no-figures", action="store_true")
@@ -118,7 +131,8 @@ def main(argv=None):
 
     log(f"=== templates ({args.apix} A/px)")
     params = recipe.build(map_I1, out, model, args.apix, box=args.box, mask_diameter=args.mask_diameter,
-                          relion_prefix=args.relion_prefix, gap_radius=args.gap_radius, log=log)
+                          relion_prefix=args.relion_prefix, gap_radius=args.gap_radius,
+                          lowpass=args.lowpass, log=log)
     params["emdb"] = entry
     params["map"] = str(map_path)
     params["symmetry"] = dict(setting=frame["setting"], score=round(frame["score"], 4),
