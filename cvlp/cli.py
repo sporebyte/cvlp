@@ -18,7 +18,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import emdb, lattice as L, recipe, shell as S, symmetry
+from . import emdb, figures, lattice as L, recipe, shell as S, symmetry
 from . import cutout as cut, mapio
 
 
@@ -127,11 +127,7 @@ def main(argv=None):
     params["lattice_test"] = scores
     recipe.write_params(params, out / "params.json")
     if not args.no_figures:
-        try:
-            d = __import__("cvlp.figures", fromlist=["write_all"]).write_all(params, scores, out)
-            log(f"  figures in {d}")
-        except ImportError as e:
-            log(f"  (no figures: {e})")
+        log(f"  figures in {figures.write_all(params, scores, out)}")
 
     log(f"=== done in {time.time() - t0:.0f} s -> {out}/")
     for n, f in params["files"]["references"].items():

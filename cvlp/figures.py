@@ -1,4 +1,4 @@
-"""QC panels for a template run (matplotlib, optional)."""
+"""QC panels for a template run."""
 from __future__ import annotations
 
 from pathlib import Path

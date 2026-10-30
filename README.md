@@ -6,18 +6,15 @@ an EMDB id and get one template per capsomer class, an edge decoy, the shared
 mask and the RELION `--ref` star files, at your subtomogram pixel size. It only
 makes templates: no seeding, and no tomogram needed.
 
-Standalone: needs only numpy, scipy and mrcfile (plus matplotlib for the QC
-figures). It does not import teact.
+Standalone: needs only numpy, scipy, mrcfile and matplotlib, which pip
+installs with it. It does not import teact.
 
 Install from GitHub, or from a local clone (editable, so changes apply
-without reinstalling). The quotes stop zsh reading `[figures]` as a filename
-pattern, and inside quotes `~` is not expanded, so a local path needs `$HOME`
-or `.`:
+without reinstalling):
 
 ```bash
-pip install "cvlp[figures] @ git+https://github.com/sporebyte/cvlp.git"
-pip install -e ".[figures]"                    # from inside the cloned cvlp folder
-pip install -e "$HOME/cvlp[figures]"           # same, from anywhere
+pip install git+https://github.com/sporebyte/cvlp.git
+pip install -e ~/cvlp
 ```
 
 ```bash
