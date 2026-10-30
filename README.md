@@ -112,3 +112,7 @@ the synthetic maps.
 - **Small or filled capsids** (T=1, T=3) only have room for a mask capped at the
   capsid diameter. If density fills the particle to the centre, nothing is cut
   unless you give `--gap-radius`.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

@@ -6,6 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "cvlp"
 version = "0.1.0"
 description = "Capsomer templates for icosahedral VLPs from an EMDB entry (the copia recipe, any T)"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = ["numpy", "scipy", "mrcfile"]
 
