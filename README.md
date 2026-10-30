@@ -9,8 +9,18 @@ makes templates: no seeding, and no tomogram needed.
 Standalone: needs only numpy, scipy and mrcfile (plus matplotlib for the QC
 figures). It does not import teact.
 
+Install from GitHub, or from a local clone (editable, so changes apply
+without reinstalling). The quotes stop zsh reading `[figures]` as a filename
+pattern, and inside quotes `~` is not expanded, so a local path needs `$HOME`
+or `.`:
+
 ```bash
-pip install "~/cvlp[figures]"                  # or: pip install -e ~/cvlp  (or run python -m cvlp from ~/cvlp)
+pip install "cvlp[figures] @ git+https://github.com/sporebyte/cvlp.git"
+pip install -e ".[figures]"                    # from inside the cloned cvlp folder
+pip install -e "$HOME/cvlp[figures]"           # same, from anywhere
+```
+
+```bash
 cvlp EMD-19708                                 # copia T=9 -> C1, C3, C5 + decoy
 cvlp EMD-19708 --relion-prefix surface_vlps_1808/seeding_v2
 cvlp EMD-10800 --apix 11.8 --box 32            # any other capsid / sampling
