@@ -1,0 +1,16 @@
+# run outputs: downloaded EMDB maps and generated templates
+runs/
+EMD-*/
+*.mrc
+*.map
+*.map.gz
+
+__pycache__/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.DS_Store
+
+# local Claude Code settings
+.claude/

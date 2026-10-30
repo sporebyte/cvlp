@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cvlp"
+version = "0.1.0"
+description = "Capsomer templates for icosahedral VLPs from an EMDB entry (the copia recipe, any T)"
+requires-python = ">=3.10"
+dependencies = ["numpy", "scipy", "mrcfile"]
+
+[project.optional-dependencies]
+figures = ["matplotlib"]
+
+[project.scripts]
+cvlp = "cvlp.cli:main"
+
+[tool.setuptools]
+packages = ["cvlp"]
