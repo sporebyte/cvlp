@@ -1,15 +1,16 @@
-# cvlp: capsomer templates for icosahedral VLPs, from an EMDB id
+# cvlp: capsomer templates for icosahedral VLPs, from an EMDB id or your own map
 
 Gives the copia capsomer-template cutout (`make_references_and_seeds.py`
 sections A-C + `make_decoy_reference.py`) for any icosahedral capsid. You pass
-an EMDB id and get one template per capsomer class, an edge decoy, the shared
-mask and the RELION `--ref` star files, at your subtomogram pixel size. It only
-makes templates: no seeding, and no tomogram needed.
+an EMDB id or a map file and get one template per capsomer class, an edge
+decoy, the shared mask and the RELION `--ref` star files, at your subtomogram
+pixel size. It only makes templates: no seeding, and no tomogram needed.
 
-**When to use it.** Capsomer oversampling needs capsomer references. Normally
-you would cut them from your own whole-VLP average, as for copia. When your
-data has too few whole VLPs to average first, but you know the species, cvlp
-cuts the references from that species' published EMDB map instead.
+**When to use it.** Capsomer oversampling needs capsomer references. If you
+have your own whole-VLP average, as for copia, give cvlp that map
+(`--map`). When your data has too few whole VLPs to average first, but you
+know the species, give it the species' EMDB id and it cuts the references
+from the published map instead.
 
 **Best on larger VLPs (T >= 7).** A useful template holds a capsomer and its
 first neighbour ring, because the classes often differ only in their
@@ -34,8 +35,33 @@ pip install -e ~/cvlp
 ```bash
 cvlp EMD-19708                                 # copia T=9 -> C1, C3, C5 + decoy
 cvlp EMD-19708 --relion-prefix surface_vlps_1808/seeding_v2
+cvlp --map my_vlp_average.mrc                  # your own average, no EMDB entry
 cvlp EMD-10800 --apix 11.8 --box 32            # any other capsid / sampling
+cvlp-gui                                       # the same with a preview (below)
 ```
+
+On your own copia average (`vlp.mrc`, the map `seeding_v2` was cut from),
+`cvlp --map vlp.mrc` finds T=9 by itself and its templates and mask correlate
+0.998-0.999 with `seeding_v2`. The rest is a half-voxel recentring of the map.
+
+### GUI
+
+`cvlp-gui` (or `python -m cvlp.gui`) does the same run in three steps:
+
+1. **Load** an EMDB id or a map file (or both: a local copy of an entry).
+   This downloads the map, finds the frame and the lattice, and takes about a
+   minute, once per map. The detected T, the classes and the EMDB annotation
+   are shown. You can override T or (h,k) and re-check the lattice.
+2. **Preview** with the current parameters (pixel size, box, mask, max arc,
+   low-pass, gap radius, RELION prefix). Each class is shown as the low-passed
+   template with the mask outline, and as the unfiltered cutout from the map,
+   with the box, mask and how distinct the templates are (their correlations).
+   A re-preview takes 20-60 s.
+3. **Save** writes the previewed templates, mask, star files, `params.json`
+   and figures to the output folder.
+
+The preview runs the same code as the command line, into a hidden `.preview`
+folder, so the saved files are identical to `cvlp` with the same settings.
 
 | option | default | |
 |---|---|---|
@@ -48,8 +74,8 @@ cvlp EMD-10800 --apix 11.8 --box 32            # any other capsid / sampling
 | `--lowpass` | `copia` | template low-pass: `copia`, `nyquist`, or a resolution in A (see below) |
 | `--gap-radius` | measured | remove everything inside this radius (inner layer / RNP) |
 | `--relion-prefix` | the output folder | how RELION sees the output folder, used in the star files |
-| `--map file.mrc` | | use a local map instead of downloading |
-| `-o DIR` | `./EMD-xxxxx` | output folder |
+| `--map file.mrc` | | your own map; with an EMDB id, a local copy of the entry's map |
+| `-o DIR` | `./EMD-xxxxx` or the map's name | output folder |
 
 ## Code borrowed from teact
 
@@ -80,9 +106,15 @@ If teact's versions change, cvlp keeps the copies it has.
 3. **Lattice.** Unless `--T`/`--hk` is given, it tries every (h,k) up to T=31,
    both hands. A lattice passes if the capsid surface has a blob on every site and
    nowhere else, with recall and precision >= 0.8. Each lattice is tested at its own
-   scale for two morphologies: **capsomers** on the sites (copia, papilloma), or
-   **dimers** on the lattice edges (HBV, TCV, whose capsomer centres are pores).
-   Coarser lattices also pass, so the finest one that passes wins. See
+   scale for three morphologies: **capsomers** on the sites (copia, papilloma,
+   herpes), **dimers** on the lattice edges (HBV, TCV, e15, whose capsomer
+   centres are pores), or **trimers** in the gaps between sites (birnavirus).
+   A lattice also passes as a partial match if nearly all maxima are on it
+   (precision >= 0.95) and they cover at least half of it; some capsomer kinds
+   are too flat to make a maximum (Sputnik). Coarser lattices also pass, so the
+   finest one that passes wins. T=1 is not counted as evidence: the 12 vertices
+   stand out on almost any icosahedral map. If only T=1 passes, cvlp uses the
+   EMDB entry's T when there is one, and otherwise says so. See
    `figures/B_lattice_test.png`. The surface is read relative to the capsid's
    own shape, not at one radius: faceted capsids such as mature phage heads are
    icosahedra, and T7 (EMD-1810) sits ~30 A further out on its vertices than
@@ -156,11 +188,47 @@ template pixel size: an unfiltered cut onto an 11.8 A grid would alias.
 | EMD-55772 | hepatitis A virus, pseudo-T=3 | T=3 |
 | EMD-1810 | phage T7 empty head, T=7 (faceted by 30 A) | T=7 (h,k)=(2,1); C5 cut at 305 A on the vertices, C1 at 282 A on the faces. Read at one radius it gave T=1 |
 | synthetic | T=7 both hands, 13 (1,3), 12, 16 | correct in random orientations, centre offset recovered to ~0.05 A |
+| `vlp.mrc` (own map) | copia's own average | T=9 found without an entry; templates and mask 0.998-0.999 with `seeding_v2` |
+
+### Icosahedral entries with T >= 7
+
+15 entries that EMDB itself annotates as point group I with T >= 7, across
+families and sizes, including two subtomogram averages:
+
+| entry | capsid | annotated | cvlp | how |
+|---|---|---|---|---|
+| EMD-22101 | HK97 prohead | 7 | 7 (2,1) | map: capsomers |
+| EMD-1557 | phage e15 | 7 | 7 (2,1) | map: dimers |
+| EMD-5182 | SV40 VLP | 7 | 7 (1,2) | map: capsomers |
+| EMD-3174 | P22 expanded capsid, 14.5 A | 7 | 7 (1,2) | annotation; the map's best (T=21 trimers) holds T=7: its 420 subunits sit on T=21's gaps |
+| EMD-70800 | phage D3 prohead | 9 | 9 | map: capsomers |
+| EMD-0299 | phi6 nucleocapsid | 13 | 13 (3,1) | annotation; the map gives only a partial T=3 |
+| EMD-5353 | birnavirus | 13 | 13 (1,3) | annotation; only T=1 passes |
+| EMD-49465 | VZV capsid in situ (subtomogram average) | 16 | 16 | map: capsomers |
+| EMD-1011 | phage PRD1 | 25 | 25 | annotation; only T=1 passes |
+| EMD-1662 | Sputnik virophage | 27 | 27 | map: partial match (140 maxima, all on the 272 sites) |
+| EMD-1177 | Broadhaven virus (orbivirus) | 13 | 7 (2,1) + warning | map: its outer layer, which is not the annotated T=13 layer |
+| EMD-16762 | rotavirus SLP in situ | 13 | 1 + warning | the map is only the VP2 shell (T=1); 13 is the whole virion |
+| EMD-1507, EMD-5012 | phage lambda | 7 | refused | deposited as a slab through the particle, not a whole capsid |
+| EMD-2054 | mud crab reovirus | 13 | refused | the same |
+
+So the map alone settles T on 8 of the 12 usable entries. Where it is
+inconclusive or weak (PRD1's three-tower trimers, birnavirus and phi6 at
+12-16 A, P22's subunits), the entry's annotation is used, and the run says so.
+For your own map with no annotation, check `figures/B_lattice_test.png`, and
+give `--T` if the answer is one of those cases.
 
 `python -m pytest tests` runs the lattice checks; `tests/synthetic.py` makes
 the synthetic maps.
 
 ## Caveats
+
+- **The outermost layer.** cvlp reads the capsid's outermost protein layer. For
+  particles with several (reo-, rota-, orbiviruses), an EMDB entry's T may
+  describe another layer; cvlp warns when they disagree.
+- **Capsomer spacing.** Only lattices whose capsomers are at least 60 A apart
+  at the capsid's radius are tried (real ones: 76-150 A). Finer ones would
+  match subunits, not capsomers.
 
 - **Hand labels.** (h,k) is the lattice construction in the I1 frame, not a
   laevo/dextro label. The hand is read off the map as deposited, so a map

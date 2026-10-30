@@ -55,7 +55,8 @@ def find_layers(path, min_radius=50.0, prominence_frac=0.10, min_depth=0.25, gap
 # (name, where the density maxima should be, blur / spacing, peak neighbourhood / theta, tolerance / theta)
 MORPHOLOGIES = (
     ("capsomers", lambda m: m["directions"], 0.2, 0.5, 0.25),    # copia, papilloma, most capsids
-    ("dimers", L.edge_midpoints, 0.1, 0.25, 0.125),              # HBV, TCV: spikes on the 2-folds
+    ("dimers", L.edge_midpoints, 0.1, 0.25, 0.125),              # HBV, TCV, e15: spikes on the 2-folds
+    ("trimers", L.holes, 0.1, 0.25, 0.125),                      # birnavirus: trimers in the lattice gaps
 )
 
 
@@ -118,15 +119,28 @@ def surface_radius(model, dirs):
     return B @ model["coef"]
 
 
+MIN_SPACING = 60.0      # A; capsomers are 76-150 A apart in every capsid tested (PCV3 76, copia 82, VZV 150)
+
+
+def plausible(cands, r_outer, min_spacing=MIN_SPACING):
+    """The candidate lattices whose capsomers would be at least min_spacing
+    apart at the capsid's radius. Finer lattices are not capsomer lattices: at
+    their scale the test sees subunits, which can line up with a superlattice
+    (DHBV's T=4 dimer spikes sit on T=16 sites, 42 A apart)."""
+    return [hk for hk in cands if L.capsid_model(*hk)["nn_angle"] * r_outer >= min_spacing] or [(1, 0)]
+
+
 def lattice_scores(path, r_outer, cands, surface=None, n_dirs=20000, top=0.5, log=None,
                    morphologies=MORPHOLOGIES):
     """Does the surface of the map have the pattern of lattice (h, k), and nothing else?
 
-    Two morphologies are tried: a blob on every capsomer site (10T + 2), or,
-    for capsids clustered in dimers, a blob on every lattice edge (30T); their
-    capsomer centres are pores. (Testing for pores on the sites instead does not
-    work: a dimer-clustered T=3 has pores on its sites AND its triangle centres,
-    which together are the T=9 sites.)
+    Three morphologies are tried: a blob on every capsomer site (10T + 2); for
+    capsids clustered in dimers, a blob on every lattice edge (30T), their
+    capsomer centres being pores; and for capsids clustered in trimers, a blob
+    in every gap between three sites (20T, birnavirus T=13: 260 VP2 trimers).
+    (Testing for pores on the sites instead does not work: a dimer-clustered
+    T=3 has pores on its sites AND its triangle centres, which together are the
+    T=9 sites.)
 
     Per candidate, at that lattice's own scale (theta = its neighbour angle,
     spacing = theta * r_outer):
@@ -162,10 +176,12 @@ def lattice_scores(path, r_outer, cands, surface=None, n_dirs=20000, top=0.5, lo
         th = m["nn_angle"]
         sp = th * r_outer
         ts = np.arange(0, top * sp + 1e-6, apix / 2)
-        row = []
+        row, amaps = [], {}
         for name, where, blur, nbhd, tol in morphologies:
-            v = gaussian_filter(vol, blur * sp / apix)
-            a = np.mean([cut.sample(v, apix, c, dirs * (start + t)[:, None]) for t in ts], 0)
+            if blur not in amaps:                          # dimers and trimers share one blur
+                v = gaussian_filter(vol, blur * sp / apix)
+                amaps[blur] = np.mean([cut.sample(v, apix, c, dirs * (start + t)[:, None]) for t in ts], 0)
+            a = amaps[blur]
             nb = tree.query_ball_point(dirs, 2 * np.sin(nbhd * th / 2))
             pk = np.array([i for i in range(n_dirs) if a[i] >= a[nb[i]].max()])
             pos = where(m)
@@ -181,14 +197,40 @@ def lattice_scores(path, r_outer, cands, surface=None, n_dirs=20000, top=0.5, lo
     return out
 
 
-def choose_lattice(scores, pass_at=0.8):
-    """Finest lattice with recall and precision >= pass_at in either morphology;
-    between the two hands of one T, the better one. -> (score dict, passed?)"""
-    ok = [s for s in scores if s["score"] >= pass_at]
-    if not ok:
-        return max(scores, key=lambda s: s["score"]), False
-    t = max(s["T"] for s in ok)
-    return max((s for s in ok if s["T"] == t), key=lambda s: s["score"]), True
+def passes(s, pass_at=0.8, partial=(0.95, 0.5)):
+    """'full': recall and precision >= pass_at. 'partial': nearly every maximum
+    is on the lattice (precision >= 0.95) and at least half the positions have
+    one - some capsomer kinds are too flat to make a maximum (Sputnik T=27:
+    140 maxima, all on its 272 sites). The true capsomers alone cover at most a
+    third of a CK superlattice; what else lines up with one is sub-capsomer
+    detail, which `plausible` keeps out by the capsomer spacing."""
+    if s["score"] >= pass_at:
+        return "full"
+    if s["precision"] >= partial[0] and s["recall"] >= partial[1]:
+        return "partial"
+    return None
+
+
+def choose_lattice(scores):
+    """The finest lattice with T >= 3 that passes (full before partial; of the
+    two hands of one T, the better). T=1 is not evidence: its 12 vertices
+    stand out on nearly every icosahedral map, so it only wins when nothing
+    else passes. -> (score dict, status): status is 'pass', 'only_T1' or 'none'."""
+    for s in scores:
+        s["pass"] = passes(s)
+    if any(s["pass"] == "full" and s["T"] > 1 for s in scores):
+        # a clear lattice is there; partial matches of finer ones are what it looks like at a
+        # finer scale (e15: T=7 dimers on the edges are T=28 sites)
+        for s in scores:
+            s["pass"] = s["pass"] if s["pass"] == "full" else None
+    ok = [s for s in scores if s["pass"]]
+    big = [s for s in ok if s["T"] > 1]
+    if big:
+        t = max(s["T"] for s in big)
+        return max((s for s in big if s["T"] == t), key=lambda s: (s["pass"] == "full", s["score"])), "pass"
+    if ok:
+        return max(ok, key=lambda s: s["score"]), "only_T1"
+    return max(scores, key=lambda s: s["score"]), "none"
 
 
 def site_profiles(path, model, r_lo, half_angle=None, n_dirs=300):

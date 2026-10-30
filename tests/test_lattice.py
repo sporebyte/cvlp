@@ -87,5 +87,45 @@ def test_ico_harmonics_are_invariant_with_zero_mean(l):
         assert S.ico_harmonic(v["5-fold"][:1], 6)[0] > 0 > S.ico_harmonic(v["3-fold"][:1], 6)[0]
 
 
+def _score(T, rec, prec, h=1, k=0, morph="capsomers"):
+    return dict(T=T, h=h, k=k, label=f"T={T}", morphology=morph, recall=rec, precision=prec, score=min(rec, prec))
+
+
+def test_choose_lattice_finest_wins_but_T1_is_not_evidence():
+    from cvlp import shell as S
+    best, st = S.choose_lattice([_score(1, 1, 1), _score(3, 1, 1, 1, 1), _score(9, 1, 1, 3, 0), _score(27, .3, 1, 3, 3)])
+    assert (best["T"], st) == (9, "pass")
+    best, st = S.choose_lattice([_score(1, 1, 1), _score(13, .2, .3, 3, 1)])
+    assert (best["T"], st) == (1, "only_T1")
+    assert S.choose_lattice([_score(1, .3, .3), _score(4, .5, .4, 2, 0)])[1] == "none"
+
+
+def test_partial_match_needs_high_precision():
+    from cvlp import shell as S
+    best, st = S.choose_lattice([_score(1, 1, 1), _score(27, .51, 1.0, 3, 3)])      # Sputnik
+    assert (best["T"], best["pass"], st) == (27, "partial", "pass")
+    assert S.passes(_score(27, .51, .9)) is None
+    assert S.passes(_score(27, .45, 1.0)) is None            # a superlattice covers <= 1/3 of its sites
+
+
+def test_trimers_sit_in_the_20T_gaps():
+    for hk in ((1, 1), (2, 0), (3, 1)):
+        m = L.capsid_model(*hk)
+        assert len(L.holes(m)) == 20 * m["T"]
+
+
+def test_slab_maps_are_refused_with_a_reason(tmp_path):
+    p = tmp_path / "slab.mrc"
+    mapio.write_mrc(p, np.zeros((8, 16, 16), np.float32), 2.0)
+    with pytest.raises(ValueError, match="slab"):
+        emdb.read_map(p)
+
+
+def test_superlattice_containment():
+    assert L.contains(L.capsid_model(4, 2), L.capsid_model(2, 1))        # T=28 = 2 x T=7
+    assert L.contains(L.capsid_model(3, 3), L.capsid_model(3, 0))        # T=27 = sqrt3 x T=9
+    assert not L.contains(L.capsid_model(3, 1), L.capsid_model(1, 1))    # T=13 does not hold T=3
+
+
 def test_ids():
     assert emdb.normalise_id("emd_19708") == emdb.normalise_id("19708") == "EMD-19708"

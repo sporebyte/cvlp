@@ -128,5 +128,8 @@ def read_map(path, max_apix=None):
     if not np.allclose(apix, apix[0], rtol=1e-3):
         raise ValueError(f"{path}: anisotropic pixel size {apix}")
     if len(set(vol.shape)) != 1:
-        raise ValueError(f"{path}: map is not cubic {vol.shape}")
+        raise ValueError(
+            f"{path}: the map is a {vol.shape[2]} x {vol.shape[1]} x {vol.shape[0]} voxel box, not a cube. Older "
+            f"EMDB entries are sometimes deposited as a slab through the particle (e.g. EMD-1507, EMD-5012), which "
+            f"does not hold the whole capsid; cvlp needs a map of the whole particle in a cubic box.")
     return np.ascontiguousarray(vol), float(apix[0])

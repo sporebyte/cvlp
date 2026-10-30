@@ -6,18 +6,26 @@ from pathlib import Path
 import numpy as np
 
 
+def _figure(**kw):
+    """A Figure that is not managed by pyplot, so writing PNGs never changes the
+    backend of a running GUI."""
+    from matplotlib.figure import Figure
+    return Figure(**kw)
+
+
+def _save(fig, path):
+    fig.tight_layout()
+    fig.savefig(path, dpi=130)
+
+
 def write_all(params, scores, out):
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import mrcfile
 
     fig_dir = Path(out) / "figures"
     fig_dir.mkdir(exist_ok=True)
     pr = params["_profiles"]
 
     # radial profile and per-orbit site profiles (copia panel A)
-    fig, ax = plt.subplots(1, 2, figsize=(12, 4))
+    fig = _figure(figsize=(12, 4)); ax = fig.subplots(1, 2)
     ax[0].plot(pr["radii"], pr["profile"], lw=2)
     for k, c in (("inner_layer", "#888"), ("gap_radius", "#d62728"), ("outer_layer", "#2ca02c"),
                  ("mask_r_outer", "#9467bd")):
@@ -31,13 +39,13 @@ def write_all(params, scores, out):
     ax[1].set(xlabel="radius (A)", title="density on each orbit's sites (inner layer removed)",
               xlim=(lo, params["mask_r_outer"] + 30))
     ax[1].legend(fontsize=8)
-    plt.tight_layout(); plt.savefig(fig_dir / "A_map_profiles.png", dpi=130); plt.close(fig)
+    _save(fig, fig_dir / "A_map_profiles.png")
 
     # lattice test
     if scores:
         labels = list(dict.fromkeys(s["label"] for s in scores))
         morph = list(dict.fromkeys(s["morphology"] for s in scores))
-        fig, ax = plt.subplots(figsize=(max(6, 0.5 * len(labels)), 3.5))
+        fig = _figure(figsize=(max(6, 0.5 * len(labels)), 3.5)); ax = fig.subplots()
         x = np.arange(len(labels))
         w = 0.8 / len(morph)
         for i, mo in enumerate(morph):
@@ -48,16 +56,28 @@ def write_all(params, scores, out):
         ax.set(ylim=(0, 1.05), ylabel="min(recall, precision)",
                title=f"lattice test (finest passing wins): T={params['T']} (h,k)=({params['h']},{params['k']})")
         ax.legend(fontsize=8, loc="upper right")
-        plt.tight_layout(); plt.savefig(fig_dir / "B_lattice_test.png", dpi=130); plt.close(fig)
+        _save(fig, fig_dir / "B_lattice_test.png")
 
-    # the templates: top view (z = 0 slice) and side view (xz), mask outline;
-    # below them the unfiltered cuts (5-slice slabs, the fine grid is thin)
     files = params["files"]["references"]
-    unf = params["files"].get("references_unfiltered", {})
+    rows = 4 if params["files"].get("references_unfiltered") else 2
+    fig = _figure(figsize=(2.6 * len(files), 2.7 * rows))
+    template_panels(fig, params, out)
+    _save(fig, fig_dir / "C_templates.png")
+    return fig_dir
+
+
+def template_panels(fig, params, out, unfiltered=True):
+    """Top view (z = 0 slice) and side view (xz) of every template with the mask
+    outline; below them the unfiltered cuts (5-slice slabs, the fine grid is
+    thin). Draws into `fig` (also used by the GUI)."""
+    import mrcfile
+
+    files = params["files"]["references"]
+    unf = params["files"].get("references_unfiltered", {}) if unfiltered else {}
     mask = mrcfile.read(Path(out) / params["files"]["mask"])
     b = mask.shape[0] // 2
     rows = 4 if unf else 2
-    fig, ax = plt.subplots(rows, len(files), figsize=(2.6 * len(files), 2.7 * rows), squeeze=False)
+    ax = fig.subplots(rows, len(files), squeeze=False)
     for col, (n, f) in enumerate(files.items()):
         v = mrcfile.read(Path(out) / f)
         panels = [(v[b], mask[b], f"{n} template, top (z=0)"), (v[:, b, :], mask[:, b, :], "template, side (xz), out = up")]
@@ -74,5 +94,4 @@ def write_all(params, scores, out):
             a.set_title(t, fontsize=8)
     for a in ax.ravel():
         a.set_xticks([]); a.set_yticks([])
-    plt.tight_layout(); plt.savefig(fig_dir / "C_templates.png", dpi=130); plt.close(fig)
-    return fig_dir
+    return ax

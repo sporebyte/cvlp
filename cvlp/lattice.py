@@ -175,6 +175,13 @@ def holes(model):
     return c / np.linalg.norm(c, axis=1, keepdims=True)
 
 
+def contains(fine, coarse, tol=0.15):
+    """Is every site of `coarse` also a site of `fine` (a CK superlattice)?
+    Tolerance in units of the fine lattice's neighbour angle."""
+    d, _ = cKDTree(fine["directions"]).query(coarse["directions"])
+    return bool((d < 2 * np.sin(tol * fine["nn_angle"] / 2)).all())
+
+
 def edge_midpoints(model):
     """Directions of the 30T lattice edges' midpoints: where the dimers sit in a
     capsid that clusters in dimers (HBV, TCV) rather than in capsomers."""
