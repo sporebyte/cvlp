@@ -74,5 +74,18 @@ def test_gaussian_half_amplitude_is_53A_for_copia():
     assert abs(cut.gaussian_half_amplitude(23.6) - 53.5) < 0.1
 
 
+@pytest.mark.parametrize("l", (6, 10, 12))
+def test_ico_harmonics_are_invariant_with_zero_mean(l):
+    from cvlp import geometry as geo, shell as S
+    u = geo.sphere_points(4000)
+    f = S.ico_harmonic(u, l)
+    for g in L.icosahedral_group()[1::7]:
+        assert np.allclose(S.ico_harmonic(u @ g.T, l), f, atol=1e-9)
+    assert abs(f.mean()) < 0.02 * f.std()
+    v = geo.symmetry_axes()
+    if l == 6:                                   # the faceting mode: vertices up, faces down
+        assert S.ico_harmonic(v["5-fold"][:1], 6)[0] > 0 > S.ico_harmonic(v["3-fold"][:1], 6)[0]
+
+
 def test_ids():
     assert emdb.normalise_id("emd_19708") == emdb.normalise_id("19708") == "EMD-19708"

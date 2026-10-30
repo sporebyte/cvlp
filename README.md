@@ -83,7 +83,16 @@ If teact's versions change, cvlp keeps the copies it has.
    scale for two morphologies: **capsomers** on the sites (copia, papilloma), or
    **dimers** on the lattice edges (HBV, TCV, whose capsomer centres are pores).
    Coarser lattices also pass, so the finest one that passes wins. See
-   `figures/B_lattice_test.png`.
+   `figures/B_lattice_test.png`. The surface is read relative to the capsid's
+   own shape, not at one radius: faceted capsids such as mature phage heads are
+   icosahedra, and T7 (EMD-1810) sits ~30 A further out on its vertices than
+   in its face centres. cvlp fits the capsid's inner surface with the lowest
+   icosahedral harmonics and logs the vertex and face-centre radii. If they
+   differ by more than 5% of the radius (T7 11%, TCV 10%), the test follows the
+   facets; otherwise the capsid is read as a sphere (copia, HPV45, DHBV, HAV and
+   PCV3 are all at or below 3%). Below that, the fit is mostly capsomer relief,
+   especially on small capsids where the capsomer pattern sits in the same low
+   harmonics, and following it hides the capsomers.
 4. **Templates.** This is copia's recipe, using the borrowed functions above: shell
    gap -> `outer_shell_only.mrc` -> site profiles -> one reference per capsomer
    orbit (radius centred on the fine grid, cut at `--apix`, low-passed,
@@ -144,6 +153,8 @@ template pixel size: an unfiltered cut onto an 11.8 A grid would alias.
 | EMD-10800 | duck HBV, T=4 | T=4, dimers |
 | EMD-53397 | turnip crinkle virus, T=3 | T=3, dimers |
 | EMD-66102 | PCV3, T=1 | T=1 |
+| EMD-55772 | hepatitis A virus, pseudo-T=3 | T=3 |
+| EMD-1810 | phage T7 empty head, T=7 (faceted by 30 A) | T=7 (h,k)=(2,1); C5 cut at 305 A on the vertices, C1 at 282 A on the faces. Read at one radius it gave T=1 |
 | synthetic | T=7 both hands, 13 (1,3), 12, 16 | correct in random orientations, centre offset recovered to ~0.05 A |
 
 `python -m pytest tests` runs the lattice checks; `tests/synthetic.py` makes

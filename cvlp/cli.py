@@ -32,7 +32,7 @@ def _lowpass_arg(s):
         raise argparse.ArgumentTypeError(f"expected copia, nyquist or a resolution in A, got {s!r}")
 
 
-def pick_lattice(args, entry, shell_path, r_outer, log):
+def pick_lattice(args, entry, shell_path, r_outer, surface, log):
     if args.hk:
         h, k = (int(x) for x in args.hk.split(","))
         log(f"  lattice forced: {L.label(h, k)}")
@@ -48,7 +48,7 @@ def pick_lattice(args, entry, shell_path, r_outer, log):
     else:
         cands = L.candidates(args.t_max)
         log(f"  testing {len(cands)} lattices up to T={args.t_max}:")
-    scores = S.lattice_scores(shell_path, r_outer, cands, log=log)
+    scores = S.lattice_scores(shell_path, r_outer, cands, surface=surface, log=log)
     best, passed = S.choose_lattice(scores)
     hint = entry.get("triangulation") if entry else None
     if not passed:
@@ -121,7 +121,12 @@ def main(argv=None):
     gap = S.find_layers(map_I1, gap_radius=args.gap_radius)
     shell_tmp = out / "outer_shell_only.mrc"
     cut.cut_outer_shell(map_I1, gap["gap"], shell_tmp)
-    (h, k), scores = pick_lattice(args, entry, shell_tmp, gap["outer"], log)
+    surface = S.surface_model(shell_tmp, gap["gap"])
+    faceted = S.is_faceted(surface)
+    log(f"  capsid surface: 5-fold vertex {surface['vertex']:.0f} A, face centre {surface['face']:.0f} A "
+        f"({surface['vertex'] - surface['face']:+.0f} A: "
+        + ("faceted, the lattice test follows the facets)" if faceted else "read as a sphere)"))
+    (h, k), scores = pick_lattice(args, entry, shell_tmp, gap["outer"], surface if faceted else None, log)
     model = L.capsid_model(h, k)
     log(f"  {model['counts']}  rules {model['rules']}")
     chosen = next((s for s in scores if (s["h"], s["k"]) == (h, k) and s["score"] >= 0.8), None)
@@ -142,6 +147,9 @@ def main(argv=None):
                               rotation_to_I1=frame["F"].round(6).tolist(),
                               centre_shift_A=frame["shift_A"].round(3).tolist(), I1_selfcheck=chk)
     params["lattice_test"] = scores
+    params["surface"] = dict(vertex_A=round(surface["vertex"], 1), face_A=round(surface["face"], 1),
+                             faceted=bool(faceted), coef=surface["coef"].round(3).tolist(),
+                             orders=list(surface["orders"]))
     recipe.write_params(params, out / "params.json")
     if not args.no_figures:
         log(f"  figures in {figures.write_all(params, scores, out)}")

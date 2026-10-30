@@ -59,7 +59,67 @@ MORPHOLOGIES = (
 )
 
 
-def lattice_scores(path, r_outer, cands, n_dirs=20000, top=0.5, log=None, morphologies=MORPHOLOGIES):
+SURFACE_ORDERS = (6, 10, 12)       # the icosahedral harmonics: l=6 is the vertex-up/face-down mode
+
+
+def ico_harmonic(dirs, l):
+    """The (unique) degree-l icosahedral invariant: a sum of Legendre P_l
+    centred on the 12 vertices. Zero mean over the sphere for l > 0."""
+    from scipy.special import eval_legendre
+    return eval_legendre(l, dirs @ geo.icosahedron()[0].T).sum(1)
+
+
+def surface_model(path, r_lo, n_dirs=3000, orders=SURFACE_ORDERS):
+    """The capsid's inner surface as a smooth icosahedral shape r_in(u).
+
+    Faceted capsids are icosahedra, not spheres: the T7 phage head (EMD-1810)
+    sits at ~300 A on the 5-fold vertices and ~270 A in the face centres, much
+    more than its 10 A shell is thick. A band at one radius then sees only the
+    vertices. Per direction, the inner edge of the capsid layer is where the
+    radial profile first reaches half its maximum above the solvent; that edge
+    is fitted with the lowest icosahedral harmonics only, so the facets come
+    through but single capsomers do not (they protrude outwards, and the inner
+    edge is the side they do not move). -> dict(coef, orders, mean, vertex, face).
+    """
+    vol, apix, c = mapio.load_map(path)
+    dirs = geo.sphere_points(n_dirs)
+    rs = np.arange(max(r_lo, apix), 0.95 * (vol.shape[0] - 1) / 2 * apix, apix / 2)
+    prof = np.stack([cut.sample(vol, apix, c, dirs * r) for r in rs], 1)           # (n_dirs, n_r)
+    base = np.median(prof[:, -max(3, len(rs) // 7):], 1)                            # solvent, per direction
+    r_in = rs[(prof - base[:, None] >= 0.5 * (prof.max(1) - base)[:, None]).argmax(1)]
+    B = np.column_stack([np.ones(n_dirs)] + [ico_harmonic(dirs, l) for l in orders])
+    keep = np.ones(n_dirs, bool)
+    for _ in range(2):                                   # refit without the outliers (pores, spikes)
+        coef = np.linalg.lstsq(B[keep], r_in[keep], rcond=None)[0]
+        res = r_in - B @ coef
+        keep = np.abs(res) < 3 * 1.4826 * np.median(np.abs(res[keep])) + apix
+    model = dict(coef=coef, orders=orders, mean=float(coef[0]))
+    ax = geo.symmetry_axes()
+    model["vertex"] = float(surface_radius(model, ax["5-fold"][:1])[0])
+    model["face"] = float(surface_radius(model, ax["3-fold"][:1])[0])
+    return model
+
+
+FACETED_FRAC = 0.05
+
+
+def is_faceted(model, frac=FACETED_FRAC):
+    """Vertex and face centre more than `frac` of the radius apart (T7: 11%,
+    TCV: 10%; copia, HPV45, DHBV, HAV, PCV3: <= 3%). Below that the fitted
+    "facets" are mostly capsomer relief - on small capsids the capsomer pattern
+    lives in the same low harmonics (at T=1 the pentamers ARE the vertices) -
+    and following them cancels the very contrast the lattice test looks for,
+    so the capsid is read as a sphere."""
+    return abs(model["vertex"] - model["face"]) > frac * model["mean"]
+
+
+def surface_radius(model, dirs):
+    B = np.column_stack([np.ones(len(dirs))] + [ico_harmonic(dirs, l) for l in model["orders"]])
+    return B @ model["coef"]
+
+
+def lattice_scores(path, r_outer, cands, surface=None, n_dirs=20000, top=0.5, log=None,
+                   morphologies=MORPHOLOGIES):
     """Does the surface of the map have the pattern of lattice (h, k), and nothing else?
 
     Two morphologies are tried: a blob on every capsomer site (10T + 2), or,
@@ -73,7 +133,9 @@ def lattice_scores(path, r_outer, cands, n_dirs=20000, top=0.5, log=None, morpho
       - blur the map with a Gaussian of sigma = blur x spacing, which fills
         hexamer pores so each capsomer is one blob
       - average the capsomer tops, r_outer .. r_outer + top x spacing (the whole
-        layer puts the peaks on subunits around the pores instead)
+        layer puts the peaks on subunits around the pores instead). With a
+        `surface` (surface_model), the band follows the capsid's facets: it
+        starts at r_in(u) + (r_outer - mean r_in) in each direction u
       - find the local maxima of that angular map
       - recall = predicted positions with a maximum within tolerance,
         precision = maxima within tolerance of a predicted position
@@ -93,15 +155,17 @@ def lattice_scores(path, r_outer, cands, n_dirs=20000, top=0.5, log=None, morpho
         c = np.full(3, (vol.shape[0] - 1) / 2)
     dirs = geo.sphere_points(n_dirs)
     tree = cKDTree(dirs)
+    start = (np.full(n_dirs, float(r_outer)) if surface is None else
+             surface_radius(surface, dirs) + (r_outer - surface["mean"]))
     out = []
     for hk, m in models.items():
         th = m["nn_angle"]
         sp = th * r_outer
-        rs = np.arange(r_outer, r_outer + top * sp + 1e-6, apix / 2)
+        ts = np.arange(0, top * sp + 1e-6, apix / 2)
         row = []
         for name, where, blur, nbhd, tol in morphologies:
             v = gaussian_filter(vol, blur * sp / apix)
-            a = np.mean([cut.sample(v, apix, c, dirs * r) for r in rs], 0)
+            a = np.mean([cut.sample(v, apix, c, dirs * (start + t)[:, None]) for t in ts], 0)
             nb = tree.query_ball_point(dirs, 2 * np.sin(nbhd * th / 2))
             pk = np.array([i for i in range(n_dirs) if a[i] >= a[nb[i]].max()])
             pos = where(m)
