@@ -18,7 +18,10 @@ cutout.fourier_lowpass), which keeps everything coarser than the cutoff.
 
 Box and mask scale with the capsomer spacing the way copia's were set
 (300 A mask at an 82 A spacing; 32 px x 11.8 A box per 300 A mask), so copia's
-own numbers come back at T=9.
+own numbers come back at T=9. On small capsids (T=1-4) that mask would reach
++-60 deg or more round the particle, a quarter of its surface, so it is capped
+at +-50 deg of arc (max_arc). Measured on HAV, TCV, DHBV and PCV3, the cap
+changes how distinct the templates are by <= 0.05 in correlation.
 """
 from __future__ import annotations
 
@@ -34,10 +37,17 @@ from . import cutout as cut, mapio
 COPIA_MASK_PER_SPACING = 300.0 / 82.02114748843148     # copia params.json: mask_diameter / spacing
 COPIA_BOX_PER_MASK = 32 * 11.8 / 300.0                 # copia: 32 px x 11.8 A box for a 300 A mask
 MASK_R_MARGIN = 15.0                                   # A past the capsomer layer top (teact config)
+MAX_ARC_DEG = 50.0      # default mask stays within +-50 deg of arc: T>=7 untouched, T=1-4 cut to 18% of the surface
 
 
 def _even(x):
     return int(2 * max(1, round(x / 2)))
+
+
+def _arc(mask_diameter, radius):
+    """Half-angle (deg, seen from the capsid centre) that a mask sphere centred on
+    a capsomer at `radius` reaches round the capsid."""
+    return float(2 * np.degrees(np.arcsin(min(1.0, mask_diameter / 4 / radius))))
 
 
 def _cc(a, b, w):
@@ -70,11 +80,12 @@ def _lowpass(lowpass, apix, shell_path, out, log):
 
 
 def build(map_I1, out, model, apix, box=None, mask_diameter=None, relion_prefix=None,
-          gap_radius=None, lowpass="copia", display=True, log=print):
+          gap_radius=None, lowpass="copia", max_arc=MAX_ARC_DEG, display=True, log=print):
     """Write every template file into `out` -> params dict (also params.json).
 
     lowpass: "copia" (default, reproduces copia), "nyquist" (2 x apix), or a
-    resolution in A for a Fourier low-pass."""
+    resolution in A for a Fourier low-pass. max_arc: the largest half-angle
+    (deg) the default mask may span round the capsid."""
     out = Path(out)
     refdir = out / "references"
     dispdir = refdir / "display"                           # unfiltered fine-grid cuts, for ChimeraX
@@ -108,12 +119,19 @@ def build(map_I1, out, model, apix, box=None, mask_diameter=None, relion_prefix=
 
     if mask_diameter is None:
         mask_diameter = float(np.round(COPIA_MASK_PER_SPACING * SPACING, 1))
-        if mask_diameter > 2 * R_REF:
-            log(f"  ! mask {mask_diameter:.0f} A would reach round the capsid; capped at the diameter {2 * R_REF:.0f} A")
-            mask_diameter = float(np.round(2 * R_REF, 1))
+        # On a small capsid the neighbour ring sits far round the particle, and the
+        # copia-sized mask becomes a quarter of the capsid. Keep it within +-max_arc
+        # of arc around the capsomer (copia's own spans +-38 deg at T=9).
+        cap = float(np.round(4 * R_REF * np.sin(np.radians(max_arc) / 2), 1))
+        if mask_diameter > cap:
+            log(f"  mask {mask_diameter:.0f} A would span +-{_arc(mask_diameter, R_REF):.0f} deg of the capsid; "
+                f"capped at {cap:.0f} A (+-{max_arc:g} deg)")
+            mask_diameter = cap
+    arc = _arc(mask_diameter, R_REF)
     box = _even(COPIA_BOX_PER_MASK * mask_diameter / apix) if box is None else int(box)
     fine_box = _even(box * apix / fine_apix)
-    log(f"  box {box} px x {apix} A = {box * apix:.0f} A, mask {mask_diameter:.0f} A, "
+    log(f"  box {box} px x {apix} A = {box * apix:.0f} A, mask {mask_diameter:.0f} A "
+        f"(+-{arc:.0f} deg, {100 * (1 - np.cos(np.radians(arc))) / 2:.0f}% of the capsid surface), "
         f"centring on {fine_box} px x {fine_apix:.3g} A")
 
     # ---- C. one reference per orbit ---------------------------------------
@@ -185,7 +203,8 @@ def build(map_I1, out, model, apix, box=None, mask_diameter=None, relion_prefix=
                                 [f"{relion_prefix}/references/{ref_file[n]}" for n in names + ["decoy"]])
 
     params = dict(T=model["T"], h=model["h"], k=model["k"], bin_apix=apix, box=box,
-                  mask_diameter=mask_diameter, gap_radius=gap["gap"], mask_r_outer=R_OUTER,
+                  mask_diameter=mask_diameter, mask_arc_deg=round(arc, 1),
+                  gap_radius=gap["gap"], mask_r_outer=R_OUTER,
                   inner_layer=gap["inner"], outer_layer=gap["outer"], capsomer_radius=R_CAPS,
                   reference_radius=R_REF, ref_radii=radii_ref, spacing=SPACING,
                   fine_apix=fine_apix, fine_box=fine_box, lowpass=lp_info,

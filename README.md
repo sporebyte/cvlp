@@ -27,7 +27,8 @@ cvlp EMD-10800 --apix 11.8 --box 32            # any other capsid / sampling
 |---|---|---|
 | `--apix` | 11.8 | A/px of the subtomograms the templates are for |
 | `--box` | scaled | px; copia's 32 px per 300 A mask, scaled with the mask |
-| `--mask-diameter` | scaled | A; copia's 300 A at an 82 A capsomer spacing, scaled with the spacing (capped at the capsid diameter) |
+| `--mask-diameter` | scaled | A; copia's 300 A at an 82 A capsomer spacing, scaled with the spacing, within `--max-arc` |
+| `--max-arc` | 50 | deg; the default mask reaches at most this far round the capsid (see below) |
 | `--T` | detected | the triangulation number; the hand of a skewed lattice is still read from the map |
 | `--hk 2,1` | | force one lattice |
 | `--lowpass` | `copia` | template low-pass: `copia`, `nyquist`, or a resolution in A (see below) |
@@ -134,9 +135,29 @@ the synthetic maps.
 - **Dimer-clustered capsids.** The templates show a pore ringed by dimers, and
   the decoy sits on a dimer. The neighbour-contrast check reads negative
   there, which is expected; the run prints a note.
-- **Small or filled capsids** (T=1, T=3) only have room for a mask capped at the
-  capsid diameter. If density fills the particle to the centre, nothing is cut
-  unless you give `--gap-radius`.
+- **Small capsids (T=1-4).** The mask is sized to hold a capsomer and its first
+  neighbour ring (copia: 1.83 spacings in radius, +-38 deg, 10% of the
+  surface). On a small capsid the ring sits much further round the particle,
+  so the same rule would span +-60 deg or more and a quarter of the capsid. The
+  default mask is therefore capped at +-50 deg of arc (18% of the surface);
+  T>=7 capsids are not affected. Measured with Nyquist-filtered templates, the
+  cap changes how distinct they are by <= 0.05 in correlation:
+
+  | capsid | T | uncapped: arc / surface | capped | class corr. | decoy corr. |
+  |---|---|---|---|---|---|
+  | HAV EMD-55772 | 3 | 61 deg / 26% | 50 deg / 18% | 0.86 -> 0.85 | 0.84 -> 0.83 |
+  | TCV EMD-53397 | 3 | 64 deg / 28% | 50 deg / 18% | 0.23 -> 0.26 | 0.29 -> 0.30 |
+  | DHBV EMD-10800 | 4 | 64 deg / 28% | 50 deg / 18% | 0.42 -> 0.47 | 0.33 -> 0.34 |
+  | HPV45 EMD-66072 | 7 | 45 deg / 14% | not capped | 0.44 | 0.30 |
+  | copia EMD-19708 | 9 | 38 deg / 10% | not capped | 0.81 | 0.62 |
+
+  Shrinking the mask further does not help in general: copia's hexamers (0.97)
+  and HPV's pentamers (0.78) can only be told apart by their neighbours. At
+  11.8 A/px a T=1-4 capsid is only 15-30 px across; for small rigid capsids
+  whole-particle averaging plus symmetry expansion is usually the more
+  reliable route.
+- **Filled capsids.** If density fills the particle to the centre, nothing is
+  cut unless you give `--gap-radius`.
 
 ## License
 

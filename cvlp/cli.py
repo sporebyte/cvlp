@@ -72,7 +72,10 @@ def main(argv=None):
     ap.add_argument("--map", help="use this map file instead of downloading the entry's primary map")
     ap.add_argument("--apix", type=float, default=11.8, help="A/px of the subtomograms the templates are for (11.8)")
     ap.add_argument("--box", type=int, help="template box, px (default: scaled from copia's 32 px / 300 A mask)")
-    ap.add_argument("--mask-diameter", type=float, help="A (default: scaled from copia's 300 A at an 82 A spacing)")
+    ap.add_argument("--mask-diameter", type=float,
+                    help="A (default: scaled from copia's 300 A at an 82 A spacing, within --max-arc)")
+    ap.add_argument("--max-arc", type=float, default=recipe.MAX_ARC_DEG,
+                    help="deg; the default mask spans at most this much arc round the capsid (50)")
     ap.add_argument("--T", type=int, help="triangulation number, if known (hand still read from the map)")
     ap.add_argument("--hk", help="force the lattice, e.g. 2,1")
     ap.add_argument("--t-max", type=int, default=31, help="largest T tried when T is not given (31)")
@@ -132,7 +135,7 @@ def main(argv=None):
     log(f"=== templates ({args.apix} A/px)")
     params = recipe.build(map_I1, out, model, args.apix, box=args.box, mask_diameter=args.mask_diameter,
                           relion_prefix=args.relion_prefix, gap_radius=args.gap_radius,
-                          lowpass=args.lowpass, log=log)
+                          lowpass=args.lowpass, max_arc=args.max_arc, log=log)
     params["emdb"] = entry
     params["map"] = str(map_path)
     params["symmetry"] = dict(setting=frame["setting"], score=round(frame["score"], 4),
