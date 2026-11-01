@@ -57,28 +57,16 @@ On your own copia average (`vlp.mrc`, the map `seeding_v2` was cut from),
    template with the mask outline, and as the unfiltered cutout from the map,
    with the box, mask and how distinct the templates are (their correlations).
    A re-preview takes 20-60 s.
-3. **Save** writes the previewed templates, mask, star files, `params.json`
-   and figures to the output folder.
+   **Open figures folder** shows the QC figures in Finder. `A_map_profiles.png`
+   has the radial density of the map you are cutting from: its spherical
+   average with the inner layer, gap cut, capsid layer and mask band marked,
+   and the radial profile on each capsomer class's sites. `B_lattice_test.png`
+   has the lattice test and `C_templates.png` the templates.
+3. **Save** writes the previewed templates, unfiltered references, mask, star
+   files, `params.json` and figures to the output folder.
 
 The preview runs the same code as the command line, into a hidden `.preview`
 folder, so the saved files are identical to `cvlp` with the same settings.
-
-### 3D view
-
-**3D view** in the GUI (after a preview), or `cvlp-view <output folder>` for
-any earlier run (`python -m cvlp.viewer <folder>` before reinstalling), shows
-each class as a rotatable surface, twice, in the same box and orientation:
-
-- left: the unfiltered cut from the map, at original resolution on the fine
-  grid. It starts at the EMDB author's contour level when the entry has one
-  (the cut keeps the map's density scale), otherwise at Otsu's threshold.
-- right: the low-passed template as it goes to RELION, by default only inside
-  the mask.
-
-Drag either panel to rotate and the other follows; right-drag zooms. There
-are top, side and oblique buttons, and a contour slider per panel. Surfaces are
-capped at 60,000 triangles so rotation stays smooth; a class loads in about a
-second.
 
 | option | default | |
 |---|---|---|
@@ -184,8 +172,8 @@ EMD-19708/
   emdb/                                   metadata + downloaded map
 ```
 
-The unfiltered references are plain cutouts for visualisation, not for
-RELION. They have the same centre, orientation and box (in A) as each
+The unfiltered references are plain cutouts for looking at in ChimeraX or
+any other viewer, not for RELION. They have the same centre, orientation and box (in A) as each
 template, on the fine grid (`--apix`/4, 2.95 A for 11.8), with no low-pass,
 mask or normalisation. So they keep the map's own density scale, and the EMDB
 entry's contour level works on them. They are cut from `outer_shell_only.mrc`,

@@ -7,9 +7,11 @@
 2. Preview: cuts the templates with the current parameters into a hidden
    preview folder and shows them - low-passed with the mask outline, and
    unfiltered from the map. Re-run after changing a parameter (~20-60 s).
-   "3D view" opens the references as rotatable surfaces (cvlp.viewer).
-3. Save: copies the previewed files into the output folder and writes
-   params.json and the QC figures, exactly as the command line would.
+   "Open figures folder" shows the QC figures in the file browser, among them
+   the radial density profiles of the map being cut (A_map_profiles.png).
+3. Save: copies the previewed files (templates, unfiltered references, mask,
+   star files, params.json, figures) into the output folder, exactly as the
+   command line would write them.
 
 The preview runs the same code as `cvlp`, so what you see is what you save.
 Long steps run in a background thread; the log at the bottom follows them.
@@ -18,6 +20,7 @@ from __future__ import annotations
 
 import queue
 import shutil
+import sys
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -32,6 +35,18 @@ from . import cli, figures, pipeline, recipe
 PREVIEW = ".preview"
 
 
+def open_folder(path):
+    """Show a folder in the system file browser (Finder, Explorer, or xdg-open)."""
+    import os
+    import subprocess
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", str(path)])
+    elif sys.platform.startswith("win"):
+        os.startfile(str(path))
+    else:
+        subprocess.Popen(["xdg-open", str(path)])
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -41,6 +56,7 @@ class App(tk.Tk):
         self.state = None            # pipeline state after Load
         self.params = None           # params of the current preview
         self.preview_args = None     # the template parameters it was made with
+        self.saved_to = None         # where that preview was saved, if it was
         self.busy = False
         self._build()
         self.after(100, self._poll)
@@ -93,9 +109,9 @@ class App(tk.Tk):
                         command=self._draw).pack(anchor="w", pady=(4, 0))
         self.btn_preview = ttk.Button(par, text="Preview cutouts", command=self.on_preview, state="disabled")
         self.btn_preview.pack(fill="x", pady=(6, 0))
-        self.btn_3d = ttk.Button(par, text="3D view (rotate unfiltered and template)", command=self.on_3d,
-                                 state="disabled")
-        self.btn_3d.pack(fill="x", pady=(4, 0))
+        self.btn_figs = ttk.Button(par, text="Open figures folder (radial density, lattice test, templates)",
+                                   command=self.on_figures, state="disabled")
+        self.btn_figs.pack(fill="x", pady=(4, 0))
 
         sv = ttk.LabelFrame(left, text="3  Save", padding=6)
         sv.pack(fill="x", pady=8)
@@ -204,17 +220,22 @@ class App(tk.Tk):
         prev = Path(st["out"]) / PREVIEW
         shutil.rmtree(prev, ignore_errors=True)
         self.preview_args = kw
-        self._run(lambda: pipeline.templates(st, prev, write_figures=False, log=self._log, **kw), self._previewed)
+        self.saved_to = None
+        self._run(lambda: pipeline.templates(st, prev, log=self._log, **kw), self._previewed)
 
     def _previewed(self, params):
         self.params = params
         self.btn_save.configure(state="normal")
-        self.btn_3d.configure(state="normal")
+        self.btn_figs.configure(state="normal")
         self._draw()
 
-    def on_3d(self):
-        from .viewer import Viewer
-        Viewer(self, Path(self.state["out"]) / PREVIEW, self.params)
+    def on_figures(self):
+        """The saved figures if this preview was saved, else the preview's."""
+        folder = (self.saved_to or Path(self.state["out"]) / PREVIEW) / "figures"
+        if not folder.is_dir():
+            return messagebox.showinfo("cvlp", f"No figures yet in {folder}")
+        open_folder(folder)
+        self._log(f"  opened {folder}")
 
     def on_save(self):
         st, params = self.state, self.params
@@ -230,10 +251,13 @@ class App(tk.Tk):
 
         def job():
             out.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(prev, out, dirs_exist_ok=True)
-            figures.write_all(params, st["scores"], out)
+            shutil.copytree(prev, out, dirs_exist_ok=True)       # the preview already holds the figures
             return out
-        self._run(job, lambda o: self._log(f"=== saved to {o}/  (templates, mask, star files, params.json, figures)"))
+
+        def done(o):
+            self.saved_to = o
+            self._log(f"=== saved to {o}/  (templates, unfiltered references, mask, star files, params.json, figures)")
+        self._run(job, done)
 
     # ------------------------------------------------------------------ drawing
     def _draw(self):
@@ -279,7 +303,7 @@ class App(tk.Tk):
         for b in (self.btn_lattice, self.btn_preview):
             b.configure(state=st if self.state else "disabled")
         self.btn_save.configure(state=st if self.params else "disabled")
-        self.btn_3d.configure(state=st if self.params else "disabled")
+        self.btn_figs.configure(state=st if self.params else "disabled")
         self.configure(cursor="watch" if busy else "")
 
     def _poll(self):
