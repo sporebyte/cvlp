@@ -51,7 +51,9 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("cvlp: capsomer templates")
-        self.geometry("1400x900")
+        w, h = min(1400, self.winfo_screenwidth() - 60), min(900, self.winfo_screenheight() - 110)
+        self.geometry(f"{w}x{h}+20+20")             # fits a laptop screen, not just a big monitor
+        self.minsize(900, 500)
         self.q = queue.Queue()
         self.state = None            # pipeline state after Load
         self.params = None           # params of the current preview
@@ -59,14 +61,55 @@ class App(tk.Tk):
         self.saved_to = None         # where that preview was saved, if it was
         self.busy = False
         self._build()
-        self.after(100, self._poll)
+        self._poll_id = self.after(100, self._poll)
+
+    def destroy(self):
+        self.after_cancel(self._poll_id)
+        super().destroy()
 
     # ------------------------------------------------------------------ layout
+    def _scrolling_panel(self, parent):
+        """A frame that scrolls vertically when it is taller than the window
+        (the scrollbar only shows then). -> the frame to fill."""
+        holder = ttk.Frame(parent)
+        holder.pack(side="top", fill="both", expand=True)
+        bg = ttk.Style().lookup("TFrame", "background") or self.cget("background")
+        cv = tk.Canvas(holder, highlightthickness=0, background=bg)
+        sb = ttk.Scrollbar(holder, orient="vertical", command=cv.yview)
+        cv.configure(yscrollcommand=sb.set)
+        cv.pack(side="left", fill="both", expand=True)
+        body = ttk.Frame(cv, padding=8)
+        win = cv.create_window((0, 0), window=body, anchor="nw")
+
+        def fit(_=None):
+            cv.configure(scrollregion=cv.bbox("all"), width=body.winfo_reqwidth())
+            if body.winfo_reqheight() > cv.winfo_height() > 1:
+                sb.pack(side="right", fill="y")
+            else:
+                sb.pack_forget()
+                cv.yview_moveto(0)
+        body.bind("<Configure>", fit)
+        cv.bind("<Configure>", lambda e: (cv.itemconfigure(win, width=e.width), fit()))
+
+        def wheel(e):                                   # macOS deltas are small, Windows' are +-120
+            step = -e.delta if sys.platform == "darwin" else -e.delta // 120
+            if sb.winfo_ismapped():
+                cv.yview_scroll(step, "units")
+        cv.bind("<Enter>", lambda e: (cv.bind_all("<MouseWheel>", wheel),
+                                      cv.bind_all("<Button-4>", lambda e: cv.yview_scroll(-1, "units")),
+                                      cv.bind_all("<Button-5>", lambda e: cv.yview_scroll(1, "units"))))
+        cv.bind("<Leave>", lambda e: [cv.unbind_all(s) for s in ("<MouseWheel>", "<Button-4>", "<Button-5>")])
+        return body
+
     def _build(self):
-        left = ttk.Frame(self, padding=8)
-        left.pack(side="left", fill="y")
+        side = ttk.Frame(self)
+        side.pack(side="left", fill="y")
         right = ttk.Frame(self, padding=(0, 8, 8, 8))
         right.pack(side="left", fill="both", expand=True)
+        # Save is pinned to the bottom so it is always on screen; the rest scrolls if it does not fit
+        sv = ttk.LabelFrame(side, text="3  Save", padding=6)
+        sv.pack(side="bottom", fill="x", padx=8, pady=8)
+        left = self._scrolling_panel(side)
 
         self.v = {k: tk.StringVar(value=d) for k, d in (
             ("emdb", ""), ("map", ""), ("out", ""), ("T", ""), ("hk", ""),
@@ -76,9 +119,9 @@ class App(tk.Tk):
 
         src = ttk.LabelFrame(left, text="1  Map", padding=6)
         src.pack(fill="x")
-        self._row(src, "EMDB id", "emdb", hint="e.g. EMD-19708")
+        self._row(src, "EMDB id", "emdb", hint="EMD-19708")
         self._row(src, "or map file", "map", browse=self._pick_map)
-        self._row(src, "output folder", "out", browse=self._pick_out, hint="default: the id or the file name")
+        self._row(src, "output folder", "out", browse=self._pick_out, hint="blank: id/file")
         self.btn_load = ttk.Button(src, text="Load map and find lattice", command=self.on_load)
         self.btn_load.pack(fill="x", pady=(6, 0))
 
@@ -86,35 +129,33 @@ class App(tk.Tk):
         lat.pack(fill="x", pady=8)
         self.lbl_lattice = ttk.Label(lat, text="not loaded", wraplength=330, justify="left")
         self.lbl_lattice.pack(fill="x")
-        self._row(lat, "T (blank: from map)", "T")
-        self._row(lat, "(h,k) (blank: from map)", "hk", hint="e.g. 2,1")
+        self._row(lat, "T", "T", hint="blank: map")
+        self._row(lat, "(h,k)", "hk", hint="e.g. 2,1")
         self.btn_lattice = ttk.Button(lat, text="Re-check lattice", command=self.on_lattice, state="disabled")
         self.btn_lattice.pack(fill="x", pady=(6, 0))
 
         par = ttk.LabelFrame(left, text="2  Templates", padding=6)
         par.pack(fill="x")
-        self._row(par, "pixel size (A/px)", "apix", hint="of your subtomograms")
+        self._row(par, "pixel size (A/px)", "apix", hint="subtomograms")
         self._row(par, "box (px)", "box", hint="blank: auto")
         self._row(par, "mask diameter (A)", "mask", hint="blank: auto")
-        self._row(par, "max arc (deg)", "arc")
+        self._row(par, "max arc (deg)", "arc", hint="small capsids")
         f = ttk.Frame(par); f.pack(fill="x", pady=1)
-        ttk.Label(f, text="low-pass", width=20).pack(side="left")
+        ttk.Label(f, text="low-pass", width=17).pack(side="left")
         ttk.Combobox(f, textvariable=self.v["lowpass"], values=("copia", "nyquist", "30", "40"),
                      width=12).pack(side="left", fill="x", expand=True)
         ttk.Label(par, text="copia = Gaussian (50% at ~4.5 px), nyquist = Fourier to 2 px, or a resolution in A",
                   wraplength=330, foreground="#666").pack(fill="x")
         self._row(par, "gap radius (A)", "gap", hint="blank: measured")
-        self._row(par, "RELION prefix", "prefix", hint="blank: the output folder")
+        self._row(par, "RELION prefix", "prefix", hint="blank: output")
         ttk.Checkbutton(par, text="show unfiltered cutouts", variable=self.v["unfiltered"],
                         command=self._draw).pack(anchor="w", pady=(4, 0))
         self.btn_preview = ttk.Button(par, text="Preview cutouts", command=self.on_preview, state="disabled")
         self.btn_preview.pack(fill="x", pady=(6, 0))
-        self.btn_figs = ttk.Button(par, text="Open figures folder (radial density, lattice test, templates)",
-                                   command=self.on_figures, state="disabled")
+        self.btn_figs = ttk.Button(par, text="Open figures folder", command=self.on_figures, state="disabled")
         self.btn_figs.pack(fill="x", pady=(4, 0))
+        ttk.Label(par, text="radial density of the map, lattice test, templates", foreground="#666").pack(anchor="e")
 
-        sv = ttk.LabelFrame(left, text="3  Save", padding=6)
-        sv.pack(fill="x", pady=8)
         self.btn_save = ttk.Button(sv, text="Save templates to output folder", command=self.on_save, state="disabled")
         self.btn_save.pack(fill="x")
 
@@ -134,12 +175,12 @@ class App(tk.Tk):
     def _row(self, parent, label, key, browse=None, hint=None):
         f = ttk.Frame(parent)
         f.pack(fill="x", pady=1)
-        ttk.Label(f, text=label, width=20).pack(side="left")
-        ttk.Entry(f, textvariable=self.v[key], width=18).pack(side="left", fill="x", expand=True)
+        ttk.Label(f, text=label, width=17).pack(side="left")
+        if hint:                                         # on the same row, to keep the panel short
+            ttk.Label(f, text=hint, foreground="#666", width=12).pack(side="right")
         if browse:
-            ttk.Button(f, text="...", width=3, command=browse).pack(side="left")
-        if hint:
-            ttk.Label(parent, text=hint, foreground="#666").pack(anchor="e")
+            ttk.Button(f, text="...", width=3, command=browse).pack(side="right")
+        ttk.Entry(f, textvariable=self.v[key], width=9).pack(side="left", fill="x", expand=True)
 
     def _pick_map(self):
         p = filedialog.askopenfilename(title="Map file", filetypes=[("maps", "*.mrc *.map *.ccp4"), ("all", "*")])
@@ -323,7 +364,7 @@ class App(tk.Tk):
                     messagebox.showerror("cvlp", str(val))
         except queue.Empty:
             pass
-        self.after(100, self._poll)
+        self._poll_id = self.after(100, self._poll)
 
 
 def main():
