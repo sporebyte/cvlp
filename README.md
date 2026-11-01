@@ -63,6 +63,23 @@ On your own copia average (`vlp.mrc`, the map `seeding_v2` was cut from),
 The preview runs the same code as the command line, into a hidden `.preview`
 folder, so the saved files are identical to `cvlp` with the same settings.
 
+### 3D view
+
+**3D view** in the GUI (after a preview), or `cvlp-view <output folder>` for
+any earlier run (`python -m cvlp.viewer <folder>` before reinstalling), shows
+each class as a rotatable surface, twice, in the same box and orientation:
+
+- left: the unfiltered cut from the map, at original resolution on the fine
+  grid. It starts at the EMDB author's contour level when the entry has one
+  (the cut keeps the map's density scale), otherwise at Otsu's threshold.
+- right: the low-passed template as it goes to RELION, by default only inside
+  the mask.
+
+Drag either panel to rotate and the other follows; right-drag zooms. There
+are top, side and oblique buttons, and a contour slider per panel. Surfaces are
+capped at 60,000 triangles so rotation stays smooth; a class loads in about a
+second.
+
 | option | default | |
 |---|---|---|
 | `--apix` | 11.8 | A/px of the subtomograms the templates are for |

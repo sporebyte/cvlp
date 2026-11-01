@@ -7,6 +7,7 @@
 2. Preview: cuts the templates with the current parameters into a hidden
    preview folder and shows them - low-passed with the mask outline, and
    unfiltered from the map. Re-run after changing a parameter (~20-60 s).
+   "3D view" opens the references as rotatable surfaces (cvlp.viewer).
 3. Save: copies the previewed files into the output folder and writes
    params.json and the QC figures, exactly as the command line would.
 
@@ -92,6 +93,9 @@ class App(tk.Tk):
                         command=self._draw).pack(anchor="w", pady=(4, 0))
         self.btn_preview = ttk.Button(par, text="Preview cutouts", command=self.on_preview, state="disabled")
         self.btn_preview.pack(fill="x", pady=(6, 0))
+        self.btn_3d = ttk.Button(par, text="3D view (rotate unfiltered and template)", command=self.on_3d,
+                                 state="disabled")
+        self.btn_3d.pack(fill="x", pady=(4, 0))
 
         sv = ttk.LabelFrame(left, text="3  Save", padding=6)
         sv.pack(fill="x", pady=8)
@@ -205,7 +209,12 @@ class App(tk.Tk):
     def _previewed(self, params):
         self.params = params
         self.btn_save.configure(state="normal")
+        self.btn_3d.configure(state="normal")
         self._draw()
+
+    def on_3d(self):
+        from .viewer import Viewer
+        Viewer(self, Path(self.state["out"]) / PREVIEW, self.params)
 
     def on_save(self):
         st, params = self.state, self.params
@@ -270,6 +279,7 @@ class App(tk.Tk):
         for b in (self.btn_lattice, self.btn_preview):
             b.configure(state=st if self.state else "disabled")
         self.btn_save.configure(state=st if self.params else "disabled")
+        self.btn_3d.configure(state=st if self.params else "disabled")
         self.configure(cursor="watch" if busy else "")
 
     def _poll(self):

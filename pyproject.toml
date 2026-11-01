@@ -9,11 +9,12 @@ description = "Capsomer templates for icosahedral VLPs from an EMDB entry (the c
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
-dependencies = ["numpy", "scipy", "mrcfile", "matplotlib"]
+dependencies = ["numpy", "scipy", "mrcfile", "matplotlib", "scikit-image"]
 
 [project.scripts]
 cvlp = "cvlp.cli:main"
 cvlp-gui = "cvlp.gui:main"
+cvlp-view = "cvlp.viewer:main"
 
 [tool.setuptools]
 packages = ["cvlp"]
